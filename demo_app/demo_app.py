@@ -479,6 +479,111 @@ with gr.Blocks(analytics_enabled=False) as form_extraction_with_confidence_block
         ],
     )
 
+with gr.Blocks(analytics_enabled=False) as skoda_lease_extraction_block:
+    # Define requesting function, which reshapes the input into the correct schema
+    def skoda_lease_upload(file: str):
+        if file is None:
+            gr.Warning(
+                "Please select or upload a PDF/image file, then click 'Process File'."
+            )
+            return ("", "", None, {})
+        # Get response from the API
+        mime_type = mimetypes.guess_type(file)[0]
+        with open(file, "rb") as f:
+            data = f.read()
+            headers = {"Content-Type": mime_type}
+            (
+                status_code,
+                client_side_time_taken,
+                response_content,
+            ) = send_request(
+                route="skoda_lease_extraction",
+                data=data,
+                headers=headers,
+                force_json_content_type=True,  # JSON gradio block requires this
+            )
+        # Extract the image with bounding boxes from the result
+        if isinstance(response_content, dict) and response_content.get(
+            "result_img_with_bboxes"
+        ):
+            result_img = gr.Image(
+                value=Image.open(
+                    BytesIO(
+                        base64.b64decode(response_content.pop("result_img_with_bboxes"))
+                    )
+                ),
+                height=600,
+                width=750,
+                visible=True,
+            )
+        else:
+            result_img = gr.Image(value=None, visible=False)
+        return (
+            status_code,
+            client_side_time_taken,
+            result_img,
+            response_content,
+        )
+
+    # Input components
+    skoda_lease_instructions = gr.Markdown(
+        (
+            "This example extracts key information from Škoda lease documents "
+            "([Code Link](https://github.com/azure/multimodal-ai-llm-processing-accelerator/blob/main/function_app/bp_contract_extraction.py))."
+            "\n\nThe pipeline is as follows:\n"
+            "1. Azure Document Intelligence extracts the raw text from the PDF along with confidence scores for each "
+            "word/line.\n"
+            "2. The extracted text is sent to GPT-4 with instructions to extract specific lease information including:\n"
+            "   - Vehicle model and specifications\n"
+            "   - Contract duration and mileage terms\n"
+            "   - Financial information (lease rates, prices)\n"
+            "   - Vehicle color and trim details\n"
+            "3. The extracted values are cross-referenced with Document Intelligence's output to add confidence scores.\n"
+            "4. If any values are missing or have low confidence scores, the document is flagged for human review.\n"
+            "5. The response includes bounding boxes showing where each piece of information was found in the document."
+        ),
+        show_label=False,
+        line_breaks=True,
+    )
+    with gr.Row():
+        skoda_lease_file_upload = gr.File(
+            label="Upload File. To upload a different file, Hit the 'X' button to the top right of this element ->",
+            file_count="single",
+            type="filepath",
+        )
+        skoda_lease_input_thumbs = gr.Gallery(
+            label="File Preview", object_fit="contain", visible=True
+        )
+
+    skoda_lease_process_btn = gr.Button("Process File", variant="primary")
+    
+    # Output components
+    with gr.Column(render=False) as skoda_lease_output_row:
+        skoda_lease_output_label = gr.Label(value="API Response", show_label=False)
+        with gr.Row():
+            skoda_lease_status_code = gr.Textbox(
+                label="Response Status Code", interactive=False
+            )
+            skoda_lease_time_taken = gr.Textbox(
+                label="Time Taken", interactive=False
+            )
+        skoda_lease_img_output = gr.Image(
+            label="Extracted Field Locations", visible=False
+        )
+        skoda_lease_output_json = gr.JSON(label="API Response")
+
+    skoda_lease_output_row.render()
+    # Actions
+    skoda_lease_process_btn.click(
+        fn=skoda_lease_upload,
+        inputs=[skoda_lease_file_upload],
+        outputs=[
+            skoda_lease_status_code,
+            skoda_lease_time_taken,
+            skoda_lease_img_output,
+            skoda_lease_output_json,
+        ],
+    )
 
 ### Content understanding examples ###
 with gr.Blocks(analytics_enabled=False) as simple_cu_examples_block:
@@ -1782,6 +1887,8 @@ with gr.Blocks(
         simple_cu_examples_block.render()
     with gr.Tab("Form Extraction with Confidence Scores (HTTP)"):
         form_extraction_with_confidence_block.render()
+    with gr.Tab("Contract Extraction with Confidence Scores (HTTP)"):
+        skoda_lease_extraction_block.render()
     with gr.Tab("Call Center Audio Processing (HTTP)"):
         call_center_audio_processing_block.render()
     with gr.Tab("Multimodal Document Intelligence Processing (HTTP)"):
